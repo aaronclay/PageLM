@@ -83,14 +83,15 @@ async function transcribeWithGoogle(filePath: string): Promise<TranscriptionResu
             throw new Error('Google Cloud credentials not configured');
         }
 
-        let speech: any;
+        let speechModule: any;
         try {
-            speech = await eval(`import('@google-cloud/speech')`);
+            speechModule = await import('@google-cloud/speech');
         } catch (importError) {
             throw new Error('Google Cloud Speech SDK not installed. Run: npm install @google-cloud/speech');
         }
 
-        const client = new speech.SpeechClient();
+        const SpeechClient = speechModule.SpeechClient || speechModule.default?.SpeechClient;
+        const client = new SpeechClient();
 
         const audioBytes = fs.readFileSync(filePath);
 
