@@ -136,7 +136,7 @@ async function transcribeWithAssemblyAI(filePath: string): Promise<Transcription
             throw new Error('AssemblyAI API key not configured');
         }
 
-        const audioData = fs.readFileSync(filePath);
+        const audioData = await fs.promises.readFile(filePath);
 
         const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
             method: 'POST',
