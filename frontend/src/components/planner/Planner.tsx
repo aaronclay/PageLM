@@ -188,7 +188,6 @@ export default function Planner() {
     const planTask = async (id: string) => {
         setLoadingStates(prev => ({ ...prev, [id]: { ...prev[id], plan: true } }))
         try {
-            console.log('Planning task:', id)
             const result = await plannerPlan(id, false)
             console.log('Plan result:', result)
             const { task } = result
