@@ -84,7 +84,6 @@ export function plannerRoutes(app: any) {
                 return res.status(404).send({ ok: false, error: "Task not found" })
             }
 
-            console.log('Task planned successfully:', task.id, 'Steps:', task.steps?.length)
             res.send({ ok: true, task })
             emitToAll(rooms.get("default"), { type: "plan.update", taskId: task.id, slots: task.plan?.slots || [] })
         } catch (e: any) {
