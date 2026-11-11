@@ -96,31 +96,31 @@ async function synth_eleven(segs: TSeg[], dir: string, base: string, emit?: (m: 
   const k = config.eleven_api_key || ''
   const v0 = config.eleven_voice_a || ''
   const v1 = config.eleven_voice_b || v0
-  const files: string[] = []
 
   if (!k) throw new Error('eleven_api_key_missing')
 
-  for (let i = 0; i < segs.length; i++) {
-    const s = segs[i]
-    const v = s.voice || (i % 2 ? v1 : v0)
-    if (!v) throw new Error('eleven_voice_missing')
-    const f = path.join(dir, `${base}.${i}.mp3`)
+  const files = await Promise.all(
+    segs.map(async (s, i) => {
+      const v = s.voice || (i % 2 ? v1 : v0)
+      if (!v) throw new Error('eleven_voice_missing')
+      const f = path.join(dir, `${base}.${i}.mp3`)
 
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${v}`, {
-      method: 'POST',
-      headers: { 'xi-api-key': k, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: s.text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: { stability: 0.4, similarity_boost: 0.8 }
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${v}`, {
+        method: 'POST',
+        headers: { 'xi-api-key': k, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: s.text,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: { stability: 0.4, similarity_boost: 0.8 }
+        })
       })
+      if (!r.ok) throw new Error(`elevenlabs_http_${r.status}`)
+      const b = new Uint8Array(await r.arrayBuffer())
+      await fs.promises.writeFile(f, b)
+      emit && emit({ type: 'audio_progress', i, len: segs.length })
+      return f
     })
-    if (!r.ok) throw new Error(`elevenlabs_http_${r.status}`)
-    const b = new Uint8Array(await r.arrayBuffer())
-    await fs.promises.writeFile(f, b)
-    files.push(f)
-    emit && emit({ type: 'audio_progress', i, len: segs.length })
-  }
+  )
 
   const out = path.join(dir, `${base}.mp3`)
   return await ff(dir, files, out, emit)
