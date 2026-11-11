@@ -7,32 +7,89 @@ import { config } from '../../config/env'
 export type TSeg = { text: string; voice?: string }
 export type TSay = (segs: TSeg[], dir: string, base: string, emit?: (m: any) => void) => Promise<string>
 
-function ff(dir: string, parts: string[], out: string, emit?: (m: any) => void) {
+function sanitizePath(p: string, paramName: string): string {
+  if (typeof p !== 'string' || !p.trim()) {
+    throw new Error(`Invalid ${paramName}: path must be a non-empty string`)
+  }
+  const resolved = path.resolve(p)
+  const baseName = path.basename(resolved)
+  if (baseName.startsWith('-')) {
+    throw new Error(`Invalid ${paramName}: filename must not start with a hyphen '-'`)
+  }
+  if (/[\r\n\0]/.test(p)) {
+    throw new Error(`Invalid ${paramName}: path contains illegal control characters`)
+  }
+  return resolved
+}
+
+export function validateFfmpegBinary(bin: string): string {
+  if (typeof bin !== 'string' || !bin.trim()) {
+    throw new Error('Invalid ffmpeg binary path: must be a non-empty string')
+  }
+  if (/[\r\n\0]/.test(bin)) {
+    throw new Error('Invalid ffmpeg binary path: contains illegal characters')
+  }
+  const trimmed = bin.trim()
+  if (trimmed.startsWith('-')) {
+    throw new Error('Invalid ffmpeg binary path: binary must not start with a hyphen')
+  }
+  return trimmed
+}
+
+export function buildConcatListContent(parts: string[], dir: string): string {
+  const resolvedDir = path.resolve(dir)
+  return parts.map((p, idx) => {
+    const resolvedPart = sanitizePath(p, `part[${idx}]`)
+    const rel = path.relative(resolvedDir, resolvedPart)
+    
+    // If inside directory and doesn't traverse upwards, use relative path with forward slashes
+    const isInsideDir = !rel.startsWith('..') && !path.isAbsolute(rel)
+    const targetPath = isInsideDir ? rel.split(path.sep).join('/') : resolvedPart.split(path.sep).join('/')
+    
+    if (/[\r\n\0]/.test(targetPath)) {
+      throw new Error(`Invalid part path: contains newline or null byte`)
+    }
+    
+    return `file '${targetPath.replace(/'/g, "'\\''")}'`
+  }).join('\n')
+}
+
+export function ff(dir: string, parts: string[], out: string, emit?: (m: any) => void) {
   return new Promise<string>((res, rej) => {
-    const list = path.join(dir, 'list.txt')
-    const listContent = parts.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n')
-    fs.writeFileSync(list, listContent)
-    
-    const bin = config.ffmpeg || 'ffmpeg'
-    
-    const p = spawn(bin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'libmp3lame', '-b:a', '192k', out], { stdio: 'pipe' })
-    
-    p.stderr.on('data', d => {
-      const msg = String(d)
-      emit && emit({ type: 'ffmpeg', data: msg })
-    })
-    
-    p.on('close', c => {
-      if (c === 0) {
-        res(out)
-      } else {
-        rej(new Error('ffmpeg_failed'))
+    try {
+      if (!Array.isArray(parts) || parts.length === 0) {
+        throw new Error('No audio parts provided for concatenation')
       }
-    })
-    
-    p.on('error', err => {
+      const safeDir = sanitizePath(dir, 'dir')
+      const safeOut = sanitizePath(out, 'out')
+      const bin = validateFfmpegBinary(config.ffmpeg || 'ffmpeg')
+
+      const list = path.join(safeDir, 'list.txt')
+      const listContent = buildConcatListContent(parts, safeDir)
+      fs.writeFileSync(list, listContent)
+
+      const args = ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'libmp3lame', '-b:a', '192k', safeOut]
+      const p = spawn(bin, args, { stdio: 'pipe', shell: false })
+
+      p.stderr.on('data', d => {
+        const msg = String(d)
+        emit && emit({ type: 'ffmpeg', data: msg })
+      })
+
+      p.on('close', c => {
+        if (c === 0) {
+          res(safeOut)
+        } else {
+          rej(new Error('ffmpeg_failed'))
+        }
+      })
+
+      p.on('error', err => {
+        rej(err)
+      })
+    } catch (err) {
       rej(err)
-    })
+    }
   })
 }
 

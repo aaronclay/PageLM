@@ -4,7 +4,7 @@
     "dev": "nodemon",
     "build": "tsc -p backend/tsconfig.json",
     "start": "node backend/dist/src/core/index.js",
-    "test": "vitest run",
+    "test": "vitest run backend/src/",
     "test:watch": "vitest"
   },
   "authors": [
