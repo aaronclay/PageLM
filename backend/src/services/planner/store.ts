@@ -40,17 +40,53 @@ export async function deleteTask(id: string): Promise<boolean> {
 }
 
 export async function listTasks(filter?: { status?: string; dueBefore?: string; course?: string }): Promise<Task[]> {
-    const list = (await db.get(LIST_KEY)) || []
-    const tasks: Task[] = []
-    for (const it of list) {
-        const t = await getTask(it.id)
+    const list: { id: string }[] = (await db.get(LIST_KEY)) || []
+    if (list.length === 0) return []
+
+    // Bulk fetch all tasks
+    const taskKeys = list.map(it => `planner:task:${it.id}`)
+    const fetchedTasks: (Task | undefined | null)[] = await db.getMany(taskKeys)
+
+    // Filter tasks based on query criteria before fetching files to minimize work
+    const matchedTasks: Task[] = []
+    const matchedTaskIds = new Set<string>()
+
+    for (const t of fetchedTasks) {
         if (!t) continue
         if (filter?.status && t.status !== filter.status) continue
         if (filter?.dueBefore && new Date(t.dueAt) > new Date(filter.dueBefore)) continue
         if (filter?.course && t.course !== filter.course) continue
-        tasks.push(t)
+        matchedTasks.push(t)
+        matchedTaskIds.add(t.id)
     }
-    return tasks.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
+
+    if (matchedTasks.length === 0) return []
+
+    // Bulk fetch task files
+    const fileList: { id: string; taskId: string }[] = (await db.get(FILES_LIST_KEY)) || []
+    const relevantFileEntries = fileList.filter(item => matchedTaskIds.has(item.taskId))
+
+    const filesByTaskId = new Map<string, TaskFile[]>()
+    if (relevantFileEntries.length > 0) {
+        const fileKeys = relevantFileEntries.map(item => `planner:task_file:${item.id}`)
+        const fetchedFiles: (TaskFile | undefined | null)[] = await db.getMany(fileKeys)
+
+        for (const file of fetchedFiles) {
+            if (!file) continue
+            let files = filesByTaskId.get(file.taskId)
+            if (!files) {
+                files = []
+                filesByTaskId.set(file.taskId, files)
+            }
+            files.push(file)
+        }
+    }
+
+    for (const t of matchedTasks) {
+        t.files = filesByTaskId.get(t.id) || []
+    }
+
+    return matchedTasks.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
 }
 
 export async function saveTaskFile(file: TaskFile): Promise<void> {
